@@ -1,0 +1,90 @@
+#!/bin/bash
+# ruby_runtime <version>
+#
+# The Ruby that TextMate's bundle commands run on: the exact version the
+# application asks for, found wherever rv looks or installed through rv,
+# prebuilt, when it is not there. Answers on standard output, one word per
+# line then its arguments, and the application reads the last ruby or
+# fallback line for the path and shows the rest:
+#
+#   ruby <directory>                 the Ruby to use, the directory whose bin/ruby it is
+#   installed <version> <directory>  an install happened first
+#   fallback <directory> <reason>    not the version asked for
+#   error <message>                  nothing to run on
+#
+# A shell script, since it runs before any Ruby exists. Nothing here ever
+# answers with the system Ruby: rv does not know it, and the application
+# refuses it besides.
+
+set -u
+
+version="${1:-}"
+if [[ -z "$version" ]]; then
+	echo "error ruby_runtime needs the version to find, such as 4.0.6"
+	exit 2
+fi
+
+here="$(cd "$(dirname "$0")" && pwd)"
+
+# The person's own rv, from the places rv installs to, before the bundle's
+# copy, so what is installed shows up in theirs. RUNTIMES_RV names one
+# outright, which is how the tests hand in a stand-in.
+rv=""
+if [[ -n "${RUNTIMES_RV:-}" ]]; then
+	rv="$RUNTIMES_RV"
+else
+	for candidate in /opt/homebrew/bin/rv "$HOME/.local/bin/rv" "$HOME/.cargo/bin/rv" /usr/local/bin/rv "$here/rv"; do
+		if [[ -x "$candidate" ]]; then
+			rv="$candidate"
+			break
+		fi
+	done
+fi
+if [[ -z "$rv" || ! -x "$rv" ]]; then
+	echo "error rv is missing: the Runtimes bundle carries none and none is installed"
+	exit 1
+fi
+
+export RV_COLOR=never
+
+# Where rv looks. RUBIES_PATH replaces rv's own list rather than adding to
+# it, so its own directory and chruby's go back in, and the other managers'
+# directories join them when they exist.
+directories=("$("$rv" ruby dir 2>/dev/null)" "$HOME/.rubies" /opt/rubies)
+for managed in "$HOME/.rbenv/versions" "$HOME/.asdf/installs/ruby" "$HOME/.local/share/mise/installs/ruby"; do
+	[[ -d "$managed" ]] && directories+=("$managed")
+done
+RUBIES_PATH="$(IFS=:; echo "${directories[*]}")"
+export RUBIES_PATH
+
+# rv answers with the executable; the application wants the directory it belongs to.
+directory_of () {
+	local executable="$1"
+	dirname "$(dirname "$executable")"
+}
+
+find_ruby () {
+	"$rv" ruby find "$1" 2>/dev/null
+}
+
+if executable="$(find_ruby "$version")"; then
+	echo "ruby $(directory_of "$executable")"
+	exit 0
+fi
+
+if "$rv" ruby install "$version" >/dev/null 2>&1 && executable="$(find_ruby "$version")"; then
+	echo "installed $version $(directory_of "$executable")"
+	echo "ruby $(directory_of "$executable")"
+	exit 0
+fi
+
+# The install could not happen, offline most likely. The newest of the
+# major series stands in, and says so.
+series="${version%%.*}"
+if executable="$(find_ruby "$series")"; then
+	echo "fallback $(directory_of "$executable") Ruby $version could not be installed, so the newest Ruby $series on this machine stands in"
+	exit 0
+fi
+
+echo "error Ruby $version could not be installed and no Ruby $series is on this machine"
+exit 1

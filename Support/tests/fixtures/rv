@@ -1,0 +1,61 @@
+#!/bin/bash
+# A stand-in for rv, for the tests: the same commands and answers the scripts
+# rely on, over a text file of installed versions instead of a machine.
+#
+#   RV_STUB_STATE    the file listing installed versions, one per line
+#   RV_STUB_OFFLINE  when set, install fails the way it does with no network
+#   RV_STUB_PIN      the version rv would report as pinned in the directory
+
+set -u
+state="${RV_STUB_STATE:?RV_STUB_STATE names the installed versions file}"
+touch "$state"
+
+installed_matching () {
+	# Newest first, the newest matching the exact version or the series.
+	local wanted="$1"
+	sort -t. -k1,1nr -k2,2nr -k3,3nr "$state" | while read -r version; do
+		if [[ "$version" == "$wanted" || "$version" == "$wanted".* ]]; then
+			echo "$version"
+			return 0
+		fi
+	done
+}
+
+case "$1 $2" in
+	"ruby dir")
+		echo "/stub/rubies"
+		;;
+	"ruby find")
+		wanted="${3:-${RV_STUB_PIN:-}}"
+		if [[ -z "$wanted" ]]; then
+			echo "Error: RubyError(FindError(NoMatchingRuby))" >&2
+			exit 1
+		fi
+		match="$(installed_matching "$wanted")"
+		if [[ -z "$match" ]]; then
+			echo "Error: RubyError(FindError(NoMatchingRuby))" >&2
+			exit 1
+		fi
+		echo "/stub/rubies/ruby-$match/bin/ruby"
+		;;
+	"ruby install")
+		if [[ -n "${RV_STUB_OFFLINE:-}" ]]; then
+			echo "Error: could not download" >&2
+			exit 1
+		fi
+		version="$3"
+		# A series installs its newest known release.
+		[[ "$version" == "4.0" ]] && version="4.0.6"
+		echo "$version" >> "$state"
+		echo "Installed Ruby version $version to /stub/rubies"
+		;;
+	"ruby pin")
+		if [[ -n "${RV_STUB_PIN:-}" ]]; then
+			echo "$PWD/.ruby-version is pinned to $RV_STUB_PIN"
+		fi
+		;;
+	*)
+		echo "stub rv: unknown command $*" >&2
+		exit 2
+		;;
+esac

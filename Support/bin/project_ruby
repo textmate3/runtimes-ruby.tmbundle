@@ -1,0 +1,63 @@
+#!/bin/bash
+# project_ruby <directory>
+#
+# The Ruby a project asks for, for running the person's own code: rv reads
+# the pin, a .ruby-version or a .tool-versions in the directory or above it,
+# and resolves it against every Ruby on the machine. Answers on standard
+# output:
+#
+#   ruby <directory>    the project's Ruby, the directory whose bin/ruby it is
+#   missing <version>   the pin names a version that is not installed
+#   none                nothing is pinned
+
+set -u
+
+project="${1:-}"
+if [[ -z "$project" || ! -d "$project" ]]; then
+	echo "error project_ruby needs the project's directory"
+	exit 2
+fi
+
+here="$(cd "$(dirname "$0")" && pwd)"
+
+rv=""
+if [[ -n "${RUNTIMES_RV:-}" ]]; then
+	rv="$RUNTIMES_RV"
+else
+	for candidate in /opt/homebrew/bin/rv "$HOME/.local/bin/rv" "$HOME/.cargo/bin/rv" /usr/local/bin/rv "$here/rv"; do
+		if [[ -x "$candidate" ]]; then
+			rv="$candidate"
+			break
+		fi
+	done
+fi
+if [[ -z "$rv" || ! -x "$rv" ]]; then
+	echo "error rv is missing: the Runtimes bundle carries none and none is installed"
+	exit 1
+fi
+
+export RV_COLOR=never
+
+directories=("$("$rv" ruby dir 2>/dev/null)" "$HOME/.rubies" /opt/rubies)
+for managed in "$HOME/.rbenv/versions" "$HOME/.asdf/installs/ruby" "$HOME/.local/share/mise/installs/ruby"; do
+	[[ -d "$managed" ]] && directories+=("$managed")
+done
+RUBIES_PATH="$(IFS=:; echo "${directories[*]}")"
+export RUBIES_PATH
+
+cd "$project" || exit 2
+
+# rv reports the pin as "<file> is pinned to <version>", and nothing when there is none.
+pin="$("$rv" ruby pin 2>/dev/null | sed -n 's/.* is pinned to //p' | head -1)"
+if [[ -z "$pin" ]]; then
+	echo "none"
+	exit 0
+fi
+
+if executable="$("$rv" ruby find 2>/dev/null)"; then
+	echo "ruby $(dirname "$(dirname "$executable")")"
+	exit 0
+fi
+
+echo "missing $pin"
+exit 0
