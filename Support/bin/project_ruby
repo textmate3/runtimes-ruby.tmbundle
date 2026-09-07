@@ -38,9 +38,10 @@ fi
 
 export RV_COLOR=never
 
-directories=("$("$rv" ruby dir 2>/dev/null)" "$HOME/.rubies" /opt/rubies)
-for managed in "$HOME/.rbenv/versions" "$HOME/.asdf/installs/ruby" "$HOME/.local/share/mise/installs/ruby"; do
-	[[ -d "$managed" ]] && directories+=("$managed")
+# Only directories that exist: one that does not makes rv answer nothing at all.
+directories=()
+for candidate in "$("$rv" ruby dir 2>/dev/null)" "$HOME/.rubies" /opt/rubies "$HOME/.rbenv/versions" "$HOME/.asdf/installs/ruby" "$HOME/.local/share/mise/installs/ruby"; do
+	[[ -n "$candidate" && -d "$candidate" ]] && directories+=("$candidate")
 done
 RUBIES_PATH="$(IFS=:; echo "${directories[*]}")"
 export RUBIES_PATH
