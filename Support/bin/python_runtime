@@ -28,7 +28,7 @@ set -u
 
 version="${1:-}"
 if [[ -z "$version" ]]; then
-	echo "error python_runtime needs the version to find, such as 3.13"
+	echo "error python_runtime needs the version to find, such as 3.14.7"
 	exit 2
 fi
 
