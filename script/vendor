@@ -1,0 +1,124 @@
+#!/usr/bin/env ruby
+# Puts a runtime manager's release binary into Support/bin, with its licenses
+# beside it, verified against the checksum its own release publishes.
+#
+#   script/vendor rv
+#   script/vendor uv 0.12.13
+#   script/vendor            both, at the versions recorded in VERSIONS
+#
+# Only the architecture the application is built for is vendored, which is
+# arm64. A universal binary would double the size of the largest file in this
+# bundle to serve Macs the application does not run on.
+
+require 'digest'
+require 'fileutils'
+require 'json'
+require 'open3'
+require 'tmpdir'
+
+BUNDLE     = File.expand_path('..', __dir__)
+BIN_DIR    = File.join(BUNDLE, 'Support/bin')
+LICENSE_DIR = File.join(BUNDLE, 'Support/licenses')
+VERSIONS   = File.join(BUNDLE, 'Support/VERSIONS')
+ARCHITECTURE = 'aarch64-apple-darwin'
+
+MANAGERS = {
+  'rv' => {
+    repository: 'spinel-coop/rv',
+    asset:      "rv-#{ARCHITECTURE}.tar.xz",
+    tag:        ->(version) { "v#{version}" },
+  },
+  'uv' => {
+    repository: 'astral-sh/uv',
+    asset:      "uv-#{ARCHITECTURE}.tar.gz",
+    tag:        ->(version) { version },
+  },
+}
+
+def run(*command, in_directory: nil)
+  output, status = Open3.capture2e(*command, chdir: in_directory || Dir.pwd)
+  abort "failed: #{command.join(' ')}\n#{output}" unless status.success?
+  output
+end
+
+def recorded_versions
+  return {} unless File.exist?(VERSIONS)
+  File.readlines(VERSIONS, chomp: true).filter_map do |line|
+    next if line.empty? || line.start_with?('#')
+    line.split(/\s+/, 2)
+  end.to_h
+end
+
+def record_version(name, version)
+  versions = recorded_versions.merge(name => version)
+  header = <<~TEXT
+    # The release of each runtime manager vendored into Support/bin.
+    # Written by script/vendor, which is the only thing that should change it.
+  TEXT
+  body = versions.sort.map { |manager, release| "#{manager} #{release}" }.join("\n")
+  File.write(VERSIONS, "#{header}#{body}\n")
+end
+
+def latest_release(repository)
+  JSON.parse(run('gh', 'release', 'view', '--repo', repository, '--json', 'tagName'))['tagName'].delete_prefix('v')
+end
+
+def vendor(name, version)
+  manager = MANAGERS.fetch(name) { abort "unknown runtime manager: #{name}" }
+  version ||= latest_release(manager[:repository])
+  tag = manager[:tag].call(version)
+  asset = manager[:asset]
+
+  puts "#{name} #{version}"
+
+  Dir.mktmpdir do |scratch|
+    run('gh', 'release', 'download', tag, '--repo', manager[:repository],
+        '--pattern', asset, '--pattern', "#{asset}.sha256", in_directory: scratch)
+
+    # The release publishes the checksum beside the archive. Checking it here
+    # means a bad download fails now rather than as a signing error later.
+    published = File.read(File.join(scratch, "#{asset}.sha256")).split(/\s+/).first
+    actual = Digest::SHA256.file(File.join(scratch, asset)).hexdigest
+    abort "checksum mismatch for #{asset}\n  published #{published}\n  actual    #{actual}" unless published == actual
+    puts "  checksum #{actual[0, 16]} matches the published one"
+
+    run('tar', 'xf', asset, in_directory: scratch)
+    binary = Dir.glob(File.join(scratch, '**', name)).find { |path| File.file?(path) && File.executable?(path) }
+    abort "#{name} is not in #{asset}" unless binary
+
+    FileUtils.mkdir_p(BIN_DIR)
+    FileUtils.cp(binary, File.join(BIN_DIR, name))
+    File.chmod(0o755, File.join(BIN_DIR, name))
+    puts "  #{(File.size(binary) / 1_048_576.0).round(1)} MB into Support/bin/#{name}"
+
+    # What the signature says is worth printing rather than asserting. A
+    # manager that stops being signed by who it was signed by is something a
+    # person should see, not something a script should decide about.
+    signature, = Open3.capture2e('codesign', '-dvvv', File.join(BIN_DIR, name))
+    authority = signature[/Authority=(.+)/, 1]
+    assessment, = Open3.capture2e('spctl', '-a', '-vv', '-t', 'install', File.join(BIN_DIR, name))
+    notarized = assessment.include?('Notarized')
+    puts "  signed by #{authority}"
+    puts "  #{notarized ? 'notarized' : 'signed but not notarized'}"
+  end
+
+  FileUtils.mkdir_p(LICENSE_DIR)
+  %w[LICENSE-APACHE LICENSE-MIT].each do |license|
+    text = run('gh', 'api', "repos/#{manager[:repository]}/contents/#{license}",
+               '--jq', '.content', '--header', 'Accept: application/vnd.github+json')
+    File.write(File.join(LICENSE_DIR, "#{name}-#{license}"), text.delete("\n").unpack1('m'))
+  end
+  puts "  licenses into Support/licenses/#{name}-LICENSE-{APACHE,MIT}"
+
+  record_version(name, version)
+end
+
+requested = ARGV.first
+version = ARGV[1]
+
+if requested
+  vendor(requested, version)
+else
+  recorded = recorded_versions
+  MANAGERS.each_key { |name| vendor(name, recorded[name]) }
+end

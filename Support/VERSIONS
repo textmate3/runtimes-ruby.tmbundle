@@ -1,0 +1,3 @@
+# The release of each runtime manager vendored into Support/bin.
+# Written by script/vendor, which is the only thing that should change it.
+rv 0.7.0

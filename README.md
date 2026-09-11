@@ -22,7 +22,21 @@ Both scripts hand rv the directories of the other managers, rbenv, asdf and mise
 
   Every lookup passes `--managed-python`, so only uv's own installs can be answered with. This is the one place the two languages genuinely differ. rv does not know the system Ruby, so the Ruby resolver could not reach it by accident. uv finds `/usr/bin/python3` and Xcode's copy readily, so the system Python has to be excluded on purpose.
 
-  A person's own `uv` is preferred over the bundle's, the way rv is. No `uv` is carried here yet, so this works where uv is already installed.
+  A person's own `uv` is preferred over the bundle's, the way rv is. No `uv` is carried here, so this works where uv is already installed.
+
+## Vendoring a manager
+
+`script/vendor` puts a manager's release binary into `Support/bin` with its licenses beside it:
+
+```sh
+script/vendor uv          # the latest release
+script/vendor uv 0.12.13  # a named one
+script/vendor             # both, at the versions in Support/VERSIONS
+```
+
+It checks the download against the checksum the release publishes, records the version, and prints who signed the binary and whether it is notarized. Signing is printed rather than enforced, since a manager changing hands is something a person should see rather than something a script should decide about.
+
+Only arm64 is vendored, matching the application.
 
 ## Tests
 
