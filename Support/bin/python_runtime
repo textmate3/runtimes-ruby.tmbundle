@@ -1,0 +1,82 @@
+#!/bin/bash
+# python_runtime <version>
+#
+# The Python that TextMate's bundle commands run on: the version the
+# application asks for, found among uv's own installs or installed through
+# uv when it is not there. Answers on standard output, one word per line
+# then its arguments, the same protocol ruby_runtime uses:
+#
+#   python <interpreter>                 the Python to use
+#   installed <version> <interpreter>    an install happened first
+#   fallback <interpreter> <reason>      not the version asked for
+#   error <message>                      nothing to run on
+#
+# One difference from ruby_runtime, and it is deliberate. That script answers
+# with a directory, because rv points into a Ruby whose layout we then rely
+# on. This one answers with the interpreter itself, because `uv python find`
+# does and because a Python's layout varies more than a Ruby's.
+#
+# Every lookup passes --managed-python, so only uv's own installs can ever be
+# answered with. macOS ships Python 3.9.6 at /usr/bin/python3, Xcode ships
+# another, and uv will happily find both without that flag. Neither is ever
+# what TextMate should run a bundle command on, and unlike Ruby, where rv
+# simply does not know the system copy, here it has to be excluded on purpose.
+#
+# A shell script, since it runs before any Python exists.
+
+set -u
+
+version="${1:-}"
+if [[ -z "$version" ]]; then
+	echo "error python_runtime needs the version to find, such as 3.13"
+	exit 2
+fi
+
+here="$(cd "$(dirname "$0")" && pwd)"
+
+# The person's own uv, from the places uv installs to, before the bundle's
+# copy, so what is installed shows up in theirs. RUNTIMES_UV names one
+# outright, which is how the tests hand in a stand-in.
+uv=""
+if [[ -n "${RUNTIMES_UV:-}" ]]; then
+	uv="$RUNTIMES_UV"
+else
+	for candidate in /opt/homebrew/bin/uv "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" /usr/local/bin/uv "$here/uv"; do
+		if [[ -x "$candidate" ]]; then
+			uv="$candidate"
+			break
+		fi
+	done
+fi
+if [[ -z "$uv" || ! -x "$uv" ]]; then
+	echo "error uv is missing: the Runtimes bundle carries none and none is installed"
+	exit 1
+fi
+
+export NO_COLOR=1
+
+find_python () {
+	"$uv" python find --managed-python "$1" 2>/dev/null
+}
+
+if interpreter="$(find_python "$version")" && [[ -n "$interpreter" ]]; then
+	echo "python $interpreter"
+	exit 0
+fi
+
+if "$uv" python install "$version" >/dev/null 2>&1 && interpreter="$(find_python "$version")" && [[ -n "$interpreter" ]]; then
+	echo "installed $version $interpreter"
+	echo "python $interpreter"
+	exit 0
+fi
+
+# The install could not happen, offline most likely. The newest managed
+# Python of any version stands in, and says so. Asking uv for "3" answers
+# the newest 3.x it manages.
+if interpreter="$(find_python 3)" && [[ -n "$interpreter" ]]; then
+	echo "fallback $interpreter Python $version could not be installed, so the newest Python uv manages on this machine stands in"
+	exit 0
+fi
+
+echo "error Python $version could not be installed and uv manages no Python on this machine"
+exit 1

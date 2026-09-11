@@ -1,0 +1,75 @@
+#!/bin/bash
+# A stand-in for uv, for the tests: the commands and answers python_runtime
+# relies on, over a text file of installed versions instead of a machine.
+#
+#   UV_STUB_STATE      the file listing uv-managed versions, one per line
+#   UV_STUB_OFFLINE    when set, install fails the way it does with no network
+#   UV_STUB_UNMANAGED  a version the machine has but uv does not manage, which
+#                      --managed-python must never answer with
+#
+# The stub answers a find only when --managed-python is passed and the version
+# is in the state file, so a test that forgets the flag fails the way the real
+# uv would succeed: with a system Python.
+
+set -u
+state="${UV_STUB_STATE:?UV_STUB_STATE names the installed versions file}"
+touch "$state"
+
+installed_matching () {
+	# Newest first, the newest matching the exact version or the series.
+	local wanted="$1"
+	sort -t. -k1,1nr -k2,2nr -k3,3nr "$state" | while read -r version; do
+		if [[ "$version" == "$wanted" || "$version" == "$wanted".* ]]; then
+			echo "$version"
+			return 0
+		fi
+	done
+}
+
+case "$1 $2" in
+	"python dir")
+		echo "/stub/pythons"
+		;;
+	"python find")
+		managed=""
+		wanted=""
+		shift 2
+		for argument in "$@"; do
+			case "$argument" in
+				--managed-python) managed="1" ;;
+				-*)               ;;
+				*)                wanted="$argument" ;;
+			esac
+		done
+
+		# Without the flag the real uv would reach the system Python, so the
+		# stub does too rather than quietly behaving better than the thing it
+		# stands in for.
+		if [[ -z "$managed" && -n "${UV_STUB_UNMANAGED:-}" ]]; then
+			echo "/usr/bin/python3"
+			exit 0
+		fi
+
+		match="$(installed_matching "$wanted")"
+		if [[ -z "$match" ]]; then
+			echo "error: No interpreter found for Python $wanted in virtual environments or managed installations" >&2
+			exit 2
+		fi
+		echo "/stub/pythons/cpython-$match-macos-aarch64-none/bin/python3"
+		;;
+	"python install")
+		if [[ -n "${UV_STUB_OFFLINE:-}" ]]; then
+			echo "error: Failed to download" >&2
+			exit 1
+		fi
+		version="$3"
+		# A series installs its newest known release.
+		[[ "$version" == "3.13" ]] && version="3.13.15"
+		echo "$version" >> "$state"
+		echo "Installed Python $version"
+		;;
+	*)
+		echo "stub uv: unknown command $*" >&2
+		exit 2
+		;;
+esac
