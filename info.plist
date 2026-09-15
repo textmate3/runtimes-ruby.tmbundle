@@ -2,10 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>dependencies</key>
+	<array>
+		<dict>
+			<key>name</key>
+			<string>Runtimes</string>
+			<key>uuid</key>
+			<string>FC08DA58-3ABA-4DBB-B462-A1D7B715E523</string>
+		</dict>
+	</array>
 	<key>description</key>
 	<string>Do not uninstall: the Ruby that bundle commands run on, found or installed through rv, and the Ruby a project asks for.</string>
 	<key>name</key>
-	<string>Runtimes</string>
+	<string>Runtimes Ruby</string>
 	<key>uuid</key>
 	<string>0273983B-D121-4A7F-91CA-12C06A6CDE2A</string>
 </dict>
