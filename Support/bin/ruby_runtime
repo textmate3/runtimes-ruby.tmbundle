@@ -55,7 +55,8 @@ directories=()
 for candidate in "$("$rv" ruby dir 2>/dev/null)" "$HOME/.rubies" /opt/rubies "$HOME/.rbenv/versions" "$HOME/.asdf/installs/ruby" "$HOME/.local/share/mise/installs/ruby"; do
 	[[ -n "$candidate" && -d "$candidate" ]] && directories+=("$candidate")
 done
-RUBIES_PATH="$(IFS=:; echo "${directories[*]}")"
+# The :- is for bash 3.2, the one macOS ships, where set -u rejects an empty array.
+RUBIES_PATH="$(IFS=:; echo "${directories[*]:-}")"
 export RUBIES_PATH
 
 # rv answers with the executable; the application wants the directory it belongs to.
