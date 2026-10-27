@@ -71,10 +71,10 @@ check "a project's pin resolves to its Ruby" do
   end
 end
 
-check "a project's pin to a Ruby that is not installed is reported as missing" do
+check "a project's pin to a Ruby that is not installed is reported as missing, with the file that pins" do
   Dir.mktmpdir do |project|
     lines, = run("project_ruby", project, installed: %w[4.0.6], pin: "3.3.0")
-    lines == ["missing 3.3.0"]
+    lines == ["missing 3.3.0 #{project}/.ruby-version"]
   end
 end
 

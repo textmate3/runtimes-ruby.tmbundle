@@ -6,9 +6,9 @@
 # and resolves it against every Ruby on the machine. Answers on standard
 # output:
 #
-#   ruby <directory>    the project's Ruby, the directory whose bin/ruby it is
-#   missing <version>   the pin names a version that is not installed
-#   none                nothing is pinned
+#   ruby <directory>          the project's Ruby, the directory whose bin/ruby it is
+#   missing <version> <file>  the pin, in that file, names a version that is not installed
+#   none                      nothing is pinned
 
 set -u
 
@@ -43,22 +43,26 @@ directories=()
 for candidate in "$("$rv" ruby dir 2>/dev/null)" "$HOME/.rubies" /opt/rubies "$HOME/.rbenv/versions" "$HOME/.asdf/installs/ruby" "$HOME/.local/share/mise/installs/ruby"; do
 	[[ -n "$candidate" && -d "$candidate" ]] && directories+=("$candidate")
 done
-RUBIES_PATH="$(IFS=:; echo "${directories[*]}")"
+# The :- is for bash 3.2, the one macOS ships, where set -u rejects an empty array.
+RUBIES_PATH="$(IFS=:; echo "${directories[*]:-}")"
 export RUBIES_PATH
 
 cd "$project" || exit 2
 
 # rv reports the pin as "<file> is pinned to <version>", and nothing when there is none.
-pin="$("$rv" ruby pin 2>/dev/null | sed -n 's/.* is pinned to //p' | head -1)"
-if [[ -z "$pin" ]]; then
+pin_line="$("$rv" ruby pin 2>/dev/null | grep ' is pinned to ' | head -1)"
+if [[ -z "$pin_line" ]]; then
 	echo "none"
 	exit 0
 fi
+pin="${pin_line##* is pinned to }"
+pin_file="${pin_line% is pinned to *}"
 
 if executable="$("$rv" ruby find 2>/dev/null)"; then
 	echo "ruby $(dirname "$(dirname "$executable")")"
 	exit 0
 fi
 
-echo "missing $pin"
+# The file that pins, so the person can be pointed at it: a .tool-versions two directories up is not obvious.
+echo "missing $pin $pin_file"
 exit 0
